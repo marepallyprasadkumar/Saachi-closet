@@ -1,21 +1,25 @@
-// controllers/orderController.js — Full working version
-
+const mongoose = require("mongoose");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
 const Notification = require("../models/Notification");
-const mongoose = require("mongoose");
 
-// ✅ POST /api/orders — Place Order (NO LOGIN REQUIRED)
+const ORDER_STATUSES = ["pending", "confirmed", "shipped", "delivered", "cancelled"];
+const PAYMENT_STATUSES = ["pending", "unpaid", "paid", "failed", "refunded"];
+
 const placeOrder = async (req, res, next) => {
   try {
     const { items, shippingAddress, customer } = req.body;
+
+    if (!req.user?._id) {
+      res.status(401);
+      throw new Error("Please login to place an order");
+    }
 
     if (!items || items.length === 0) {
       res.status(400);
       throw new Error("No order items");
     }
 
-    // ✅ Verify products from DB (IMPORTANT SECURITY)
     const verifiedItems = await Promise.all(
       items.map(async (item) => {
         if (!mongoose.Types.ObjectId.isValid(item.product)) {
@@ -33,26 +37,27 @@ const placeOrder = async (req, res, next) => {
           name: product.name,
           price: product.price,
           size: item.size || "",
+          color: item.color || "",
           qty: item.qty || 1,
           image: product.image,
         };
       })
     );
 
-    // ✅ Price calculations
-    const subtotal = verifiedItems.reduce(
-      (sum, item) => sum + item.price * item.qty,
-      0
-    );
-
+    const subtotal = verifiedItems.reduce((sum, item) => sum + item.price * item.qty, 0);
     const shippingCost = subtotal >= 999 ? 0 : 99;
     const total = subtotal + shippingCost;
+    const orderCustomer = {
+      name: customer?.name || req.user.name || "",
+      phone: customer?.phone || req.user.phone || "",
+      email: customer?.email || req.user.email || "",
+    };
 
-    // ✅ Create order (no user required for now)
     const order = await Order.create({
+      userId: req.user._id,
       items: verifiedItems,
       shippingAddress,
-      customer,
+      customer: orderCustomer,
       subtotal,
       shippingCost,
       total,
@@ -74,17 +79,26 @@ const placeOrder = async (req, res, next) => {
   }
 };
 
-// ✅ GET /api/orders — Get all orders (for now, no auth)
 const getAllOrders = async (req, res, next) => {
   try {
-    const orders = await Order.find().sort({ createdAt: -1 }).populate("items.product", "category stock");
+    const orders = await Order.find()
+      .sort({ createdAt: -1 })
+      .populate("items.product", "category stock");
     res.json(orders);
   } catch (err) {
     next(err);
   }
 };
 
-// ✅ GET /api/orders/:id — Single order
+const getMyOrders = async (req, res, next) => {
+  try {
+    const orders = await Order.find({ userId: req.user._id }).sort({ createdAt: -1 });
+    res.json(orders);
+  } catch (err) {
+    next(err);
+  }
+};
+
 const getOrderById = async (req, res, next) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
@@ -94,7 +108,7 @@ const getOrderById = async (req, res, next) => {
 
     const order = await Order.findById(req.params.id);
 
-    if (!order) {
+    if (!order || !order.userId || order.userId.toString() !== req.user._id.toString()) {
       res.status(404);
       throw new Error("Order not found");
     }
@@ -105,10 +119,29 @@ const getOrderById = async (req, res, next) => {
   }
 };
 
-// ✅ PUT /api/orders/:id/status — Update status
 const updateOrderStatus = async (req, res, next) => {
   try {
     const { status, paymentStatus } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      res.status(400);
+      throw new Error("Invalid order ID");
+    }
+
+    if (!status && !paymentStatus) {
+      res.status(400);
+      throw new Error("Order status or payment status is required");
+    }
+
+    if (status && !ORDER_STATUSES.includes(status)) {
+      res.status(400);
+      throw new Error("Invalid order status");
+    }
+
+    if (paymentStatus && !PAYMENT_STATUSES.includes(paymentStatus)) {
+      res.status(400);
+      throw new Error("Invalid payment status");
+    }
 
     const order = await Order.findById(req.params.id);
 
@@ -117,22 +150,23 @@ const updateOrderStatus = async (req, res, next) => {
       throw new Error("Order not found");
     }
 
-    if (status) order.status = status;
-    if (paymentStatus) order.paymentStatus = paymentStatus;
+    const updates = {};
+    if (status) updates.status = status;
+    if (paymentStatus) updates.paymentStatus = paymentStatus;
 
-    await order.save();
+    const updatedOrder = await Order.findByIdAndUpdate(req.params.id, updates, { new: true });
 
     const messages = [];
-    if (status) messages.push(`Your order #${order._id.toString().slice(-8)} is now ${status}.`);
-    if (paymentStatus) messages.push(`Payment for order #${order._id.toString().slice(-8)} is ${paymentStatus}.`);
+    if (status) messages.push(`Your order #${updatedOrder._id.toString().slice(-8)} is now ${status}.`);
+    if (paymentStatus) messages.push(`Payment for order #${updatedOrder._id.toString().slice(-8)} is ${paymentStatus}.`);
 
     await Promise.all(
       messages.map((message) =>
         Notification.create({
-          customerName: order.customer?.name || "",
-          phone: order.customer?.phone || "",
-          email: order.customer?.email || "",
-          order: order._id,
+          customerName: updatedOrder.customer?.name || "",
+          phone: updatedOrder.customer?.phone || "",
+          email: updatedOrder.customer?.email || "",
+          order: updatedOrder._id,
           type: message.startsWith("Payment") ? "payment" : "order",
           channel: "in_app",
           message,
@@ -141,7 +175,11 @@ const updateOrderStatus = async (req, res, next) => {
       )
     );
 
-    res.json(order);
+    res.json({
+      success: true,
+      message: "Order updated successfully",
+      order: updatedOrder,
+    });
   } catch (err) {
     next(err);
   }
@@ -150,6 +188,7 @@ const updateOrderStatus = async (req, res, next) => {
 module.exports = {
   placeOrder,
   getAllOrders,
+  getMyOrders,
   getOrderById,
   updateOrderStatus,
 };

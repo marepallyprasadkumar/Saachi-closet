@@ -6,13 +6,14 @@ const orderItemSchema = new mongoose.Schema({
   name:     { type: String, required: true },
   price:    { type: Number, required: true },
   size:     { type: String, required: true },
+  color:    { type: String, default: '' },
   qty:      { type: Number, required: true, min: 1 },
   image:    { type: String, default: '' },
 });
 
 const orderSchema = new mongoose.Schema(
   {
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: false },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
 
     customer: {
       name: { type: String, default: '' },

@@ -8,6 +8,7 @@ const productRoutes = require("./routes/products");
 const orderRoutes = require("./routes/orders");
 const adminRoutes = require("./routes/admin");
 const offerRoutes = require("./routes/offers");
+const authRoutes = require("./routes/auth");
 const { errorHandler, notFound } = require("./middleware/errorHandler");
 
 const app = express();
@@ -33,6 +34,7 @@ app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/offers", offerRoutes);
+app.use("/api/auth", authRoutes);
 
 app.get("/", (_req, res) => {
   res.send("API is running...");

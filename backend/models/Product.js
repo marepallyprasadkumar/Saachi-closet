@@ -29,19 +29,12 @@ const productSchema = new mongoose.Schema(
       type: String,
       enum: [
         'dresses',
-        'tops',
         'skirts',
-        'jackets',
-        'midi',
-        'maxi',
+        'tops',
         'accessories',
-        'skincare',
-        'beauty',
+        'jackets',
         'jewelry',
-        'wellness',
-        'ethnic',
-        'western',
-        'partywear'
+        'jeans'
       ],
       required: true,
     }, // ✅ FIXED (comma added)
@@ -53,7 +46,7 @@ const productSchema = new mongoose.Schema(
 
     sizes: {
       type: [String],
-      enum: ['XS', 'S', 'M', 'L', 'XL', 'XXL', '28', '30', '32', '34', '36'],
+      enum: ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'Free Size', '28', '30', '32', '34', '36'],
       default: ['S', 'M', 'L', 'XL'],
     },
 
@@ -94,6 +87,8 @@ const productSchema = new mongoose.Schema(
         sku: { type: String, default: '' },
         size: { type: String, default: '' },
         colour: { type: String, default: '' },
+        image: { type: String, default: '' },
+        images: { type: [String], default: [] },
         stock: { type: Number, default: 0, min: 0 },
         price: { type: Number, default: 0, min: 0 },
       }
@@ -116,6 +111,11 @@ const productSchema = new mongoose.Schema(
     },
 
     featured: {
+      type: Boolean,
+      default: false,
+    },
+
+    isNew: {
       type: Boolean,
       default: false,
     },

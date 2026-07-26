@@ -5,64 +5,64 @@ const Razorpay = require("razorpay");
 const {
   placeOrder,
   getAllOrders,
+  getMyOrders,
   getOrderById,
   updateOrderStatus,
 } = require("../controllers/orderController");
 
 const Order = require("../models/Order");
+const Product = require("../models/Product");
+const { protect } = require("../middleware/auth");
 
 const router = express.Router();
 
-/* =======================
-   🔐 RAZORPAY INSTANCE
-======================= */
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-/* =======================
-   💳 CREATE ORDER (RAZORPAY)
-======================= */
 router.post("/create-order", async (req, res) => {
   try {
-    const { amount } = req.body;
+    const amount = Number(req.body.amount);
 
-    const options = {
-      amount: amount * 100,
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ success: false, message: "Valid amount is required" });
+    }
+
+    const order = await razorpay.orders.create({
+      amount: Math.round(amount * 100),
       currency: "INR",
       receipt: "receipt_" + Date.now(),
-    };
-
-    const order = await razorpay.orders.create(options);
+    });
 
     res.json(order);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Failed to create order" });
+    res.status(500).json({ success: false, message: "Failed to create order" });
   }
 });
 
-/* =======================
-   ✅ VERIFY PAYMENT + SAVE ORDER
-======================= */
-router.post("/verify-payment", async (req, res) => {
+router.post("/verify-payment", protect, async (req, res) => {
   try {
     const {
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature,
       cart,
-      userId,
       address,
       customer,
       discount,
     } = req.body;
 
-    console.log("VERIFY API HIT");
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ success: false, message: "Payment details are required" });
+    }
+
+    if (!Array.isArray(cart) || cart.length === 0) {
+      return res.status(400).json({ success: false, message: "Cart items are required" });
+    }
 
     const body = razorpay_order_id + "|" + razorpay_payment_id;
-
     const expectedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
       .update(body)
@@ -80,21 +80,24 @@ router.post("/verify-payment", async (req, res) => {
       name: item.product.name,
       price: item.product.price,
       size: item.size,
+      color: item.color || "",
       qty: item.quantity,
       image: item.product.image,
     }));
 
-    const subtotal = items.reduce(
-      (acc, item) => acc + item.price * item.qty,
-      0
-    );
-
+    const subtotal = items.reduce((acc, item) => acc + item.price * item.qty, 0);
     const discountAmount = Math.max(0, Number(discount?.amount || 0));
+    const orderCustomer = {
+      name: customer?.name || req.user.name || "",
+      phone: customer?.phone || req.user.phone || "",
+      email: customer?.email || req.user.email || "",
+    };
 
-    const orderPayload = {
+    const order = await Order.create({
+      userId: req.user._id,
       items,
       shippingAddress: address,
-      customer,
+      customer: orderCustomer,
       subtotal,
       discount: {
         code: discount?.code || "",
@@ -108,17 +111,11 @@ router.post("/verify-payment", async (req, res) => {
         paymentId: razorpay_payment_id,
         signature: razorpay_signature,
       },
-    };
-
-    if (userId && userId !== "dummyUserId") {
-      orderPayload.user = userId;
-    }
-
-    const order = await Order.create(orderPayload);
+    });
 
     await Promise.all(
       items.map((item) =>
-        require("../models/Product").findByIdAndUpdate(item.product, {
+        Product.findByIdAndUpdate(item.product, {
           $inc: { stock: -item.qty },
         })
       )
@@ -126,40 +123,20 @@ router.post("/verify-payment", async (req, res) => {
 
     return res.json({
       success: true,
-      message: "Payment verified & order saved",
+      message: "Payment verified and order saved",
       order,
     });
-
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Payment verification failed" });
+    res.status(500).json({ success: false, message: "Payment verification failed" });
   }
 });
 
-/* =======================
-   🆕 GET USER ORDERS (FIXED)
-======================= */
-router.get("/user/:userId", async (req, res) => {
-  try {
-    console.log("FIXED USER ORDERS API HIT");
+router.get("/my", protect, getMyOrders);
 
-    // 🔥 TEMP FIX
-    const orders = await Order.find().sort({ createdAt: -1 });
-
-    res.json(orders);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/* =======================
-   🛒 EXISTING ROUTES
-======================= */
-
-router.post("/", placeOrder);
+router.post("/", protect, placeOrder);
 router.get("/", getAllOrders);
-router.get("/:id", getOrderById);
+router.get("/:id", protect, getOrderById);
 router.put("/:id/status", updateOrderStatus);
 
 module.exports = router;

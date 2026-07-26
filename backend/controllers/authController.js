@@ -11,7 +11,12 @@ const signToken = (id) =>
 // POST /api/auth/register
 const register = async (req, res, next) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, password, phone } = req.body;
+
+    if (!name || !email || !password) {
+      res.status(400);
+      throw new Error('Name, email, and password are required');
+    }
 
     const exists = await User.findOne({ email });
     if (exists) {
@@ -19,12 +24,13 @@ const register = async (req, res, next) => {
       throw new Error('Email already registered');
     }
 
-    const user = await User.create({ name, email, password });
+    const user = await User.create({ name, email, password, phone: phone || '' });
 
     res.status(201).json({
       _id:   user._id,
       name:  user.name,
       email: user.email,
+      phone: user.phone,
       role:  user.role,
       token: signToken(user._id),
     });
@@ -38,6 +44,11 @@ const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
+    if (!email || !password) {
+      res.status(400);
+      throw new Error('Email and password are required');
+    }
+
     const user = await User.findOne({ email }).select('+password');
     if (!user || !(await user.matchPassword(password))) {
       res.status(401);
@@ -48,6 +59,7 @@ const login = async (req, res, next) => {
       _id:   user._id,
       name:  user.name,
       email: user.email,
+      phone: user.phone,
       role:  user.role,
       token: signToken(user._id),
     });

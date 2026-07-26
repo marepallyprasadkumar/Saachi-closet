@@ -17,6 +17,7 @@ const normalizeProductPayload = (req) => {
   );
 
   if (typeof data.featured === 'string') data.featured = data.featured === 'true';
+  if (typeof data.isNew === 'string') data.isNew = data.isNew === 'true';
   if (typeof data.isActive === 'string') data.isActive = data.isActive === 'true';
   if (typeof data.category === 'string') data.category = data.category.trim().toLowerCase();
 
@@ -57,7 +58,7 @@ const getProducts = async (req, res, next) => {
       search,
       sort,
       page = 1,
-      limit = 12
+      limit
     } = req.query;
 
     const filter = { isActive: true };
@@ -74,8 +75,11 @@ const getProducts = async (req, res, next) => {
     if (sort === 'newest') query = query.sort({ createdAt: -1 });
 
     // ✅ Pagination (VERY IMPORTANT for your UI)
-    const skip = (page - 1) * limit;
-    query = query.skip(skip).limit(Number(limit));
+    const numericLimit = Number(limit);
+    if (Number.isFinite(numericLimit) && numericLimit > 0) {
+      const skip = (Number(page) - 1) * numericLimit;
+      query = query.skip(skip).limit(numericLimit);
+    }
 
     const products = await query;
     const total = await Product.countDocuments(filter);
@@ -84,7 +88,7 @@ const getProducts = async (req, res, next) => {
       products,
       total,
       page: Number(page),
-      pages: Math.ceil(total / limit)
+      pages: numericLimit > 0 ? Math.ceil(total / numericLimit) : 1
     });
 
   } catch (err) {
@@ -106,9 +110,8 @@ const getAdminProducts = async (req, res, next) => {
 // ✅ GET /api/products/new-arrivals
 const getNewArrivals = async (req, res, next) => {
   try {
-    const products = await Product.find({ isActive: true })
+    const products = await Product.find({ isActive: true, isNew: true })
       .sort({ createdAt: -1 }) // latest first
-      .limit(8);
 
     res.json(products);
   } catch (err) {
